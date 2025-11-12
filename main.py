@@ -1,6 +1,6 @@
-import asyncio
 import json
 import os
+import time
 from collections import defaultdict
 
 from dotenv import load_dotenv
@@ -19,7 +19,7 @@ SASL_USERNAME = os.getenv("SASL_USERNAME")
 SASL_PASSWORD = os.getenv("SASL_PASSWORD")
 
 
-async def consume_and_average():
+def consume_and_average():
     consumer = KafkaConsumer(
         INPUT_TOPIC,
         bootstrap_servers=[KAFKA_BROKER],
@@ -42,25 +42,31 @@ async def consume_and_average():
     )
 
     vitals_data = defaultdict(lambda: {"sum": 0, "count": 0})
-    last_published = asyncio.get_event_loop().time()
+    last_published = time.time()
     interval = 10  # seconds
 
     try:
         while True:
-            async for message in consumer:
+            for message in consumer:
                 data = message.value
                 
                 vitals = ['body_temp', 'heart_rate', 'systolic', 'diastolic', 'breaths', 'oxygen', 'glucose']
                 for vital in vitals:
-                    vitals_data[vital]["sum"] += data[vital]
-                    vitals_data[vital]["count"] += 1
+                    if vital in data:
+                        vitals_data[vital]["sum"] += data[vital]
+                        vitals_data[vital]["count"] += 1
+                    else:
+                        print(f"Warning: {vital} not found in message: {data}")
 
-                current_time = asyncio.get_event_loop().time()
+                current_time = time.time()
                 if current_time - last_published >= interval:
                     if any(vitals_data[vital]["count"] > 0 for vital in vitals):
                         averages = {}
                         for vital in vitals:
-                            averages[vital] = vitals_data[vital]["sum"] / vitals_data[vital]["count"]
+                            if vitals_data[vital]["count"] > 0:
+                                averages[vital] = vitals_data[vital]["sum"] / vitals_data[vital]["count"]
+                            else:
+                                averages[vital] = 0  # Avoid division by zero
                             vitals_data[vital]["sum"] = 0
                             vitals_data[vital]["count"] = 0
 
@@ -85,4 +91,4 @@ async def consume_and_average():
 
 
 if __name__ == "__main__":
-    asyncio.run(consume_and_average())
+    consume_and_average()
